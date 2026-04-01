@@ -1,0 +1,1583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crye Precision Shopfloor Control</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .role-btn { width: 220px; margin: 8px auto; display: block; font-size: 1.1rem; padding: 14px; }
+  .wo-card { cursor: pointer; }
+  .wo-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+  .wo-card.disabled-card { opacity: 0.55; cursor: not-allowed; pointer-events: none; }
+  .badge-status { font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; font-weight: 600; }
+  .status-PENDING { background:#e0e0e0; color:#333; }
+  .status-IN_PROGRESS { background:#1565c0; color:#fff; }
+  .status-PAUSED { background:#f9a825; color:#000; }
+  .status-COMPLETED { background:#2e7d32; color:#fff; }
+  .op-badge { font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; font-weight: 600; }
+  .op-idle { background: #9e9e9e; color: #fff; }
+  .op-working { background: #2e7d32; color: #fff; }
+  .op-paused { background: #fdd835; color: #000; }
+  .progress { height: 10px; border-radius: 5px; }
+  .bar-label { width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.82rem; }
+  .bar-track { flex: 1; background: #e0e0e0; border-radius: 4px; height: 22px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-val { width: 60px; text-align: right; font-size: 0.82rem; }
+  .line-header { background: #e3f2fd; border-left: 4px solid #1976d2; padding: 8px 14px; font-weight: 600; border-radius: 4px; margin: 12px 0 4px; }
+  .action-btn { height: 52px; font-size: 1rem; font-weight: 700; letter-spacing: 0.04em; border-radius: 8px; }
+  .tab-content { padding-top: 16px; }
+  #pauseModal .btn { margin: 4px 0; font-size: 1rem; }
+  .chart-container { position: relative; max-width: 280px; margin: 0 auto; }
+  .filter-chip { cursor: pointer; border-radius: 20px; padding: 4px 14px; border: 1px solid #bbb; background: #fff; font-size: 0.85rem; display: inline-block; margin: 3px; }
+  .filter-chip.active { background: #1976d2; color: #fff; border-color: #1976d2; }
+  .topbar { background: #1a237e; color: #fff; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar h5 { margin: 0; font-size: 1.1rem; }
+  .topbar button { background: transparent; border: 1px solid rgba(255,255,255,0.5); color: #fff; padding: 4px 14px; border-radius: 6px; cursor: pointer; }
+  .topbar button:hover { background: rgba(255,255,255,0.15); }
+  .scroll-chips { overflow-x: auto; white-space: nowrap; padding-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ ROLE SELECTION -->
+<div id="page-role" class="page active">
+  <div class="d-flex flex-column align-items-center justify-content-center" style="min-height:100vh;">
+    <h3 class="mb-4 text-center fw-bold" style="color:#1a237e;">Crye Precision<br>Shopfloor Control</h3>
+    <button class="btn btn-primary role-btn" onclick="selectRole('SUPERVISOR')">Supervisor</button>
+    <button class="btn btn-primary role-btn" onclick="selectRole('MANAGER')">Manager</button>
+    <button class="btn btn-primary role-btn" onclick="selectRole('OPERATOR')">Operator</button>
+    <button class="btn btn-outline-primary role-btn" onclick="selectRole('STYLE_MINUTES')">Style Minutes</button>
+    <button class="btn btn-outline-primary role-btn" onclick="selectRole('EFFICIENCY')">Efficiency</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ OPERATOR SELECTION -->
+<div id="page-op-select" class="page">
+  <div class="topbar">
+    <button onclick="goToRole()">🏠 Home</button>
+    <h5 id="opSelectTitle">Operator Login</h5>
+    <div style="width:80px;"></div>
+  </div>
+  <div class="container mt-3" style="max-width:600px;">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="card-title mb-0">Add New Operator</h6>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="downloadOperatorsTemplate()" title="Download blank CSV template">⬇ CSV Template</button>
+            <button class="btn btn-sm btn-outline-success" onclick="showOpCSVUploadModal()" title="Bulk import operators from CSV">⬆ Import CSV</button>
+          </div>
+        </div>
+        <div class="row g-2">
+          <div class="col-4">
+            <input type="text" id="newOpName" class="form-control" placeholder="Operator Name">
+          </div>
+          <div class="col-2">
+            <input type="text" id="newOpLine" class="form-control" placeholder="Line">
+          </div>
+          <div class="col-4">
+            <input type="password" id="newOpPin" class="form-control" placeholder="4-digit PIN"
+              maxlength="4" inputmode="numeric" pattern="[0-9]{4}">
+          </div>
+          <div class="col-2">
+            <button class="btn btn-primary w-100" onclick="addOperator()">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h6>Select Operator</h6>
+    <div id="opLineChips" class="scroll-chips mb-2"></div>
+    <div id="opList"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ OPERATOR DASHBOARD -->
+<div id="page-op-dash" class="page">
+  <div class="topbar">
+    <button onclick="goToRole()">🏠 Home</button>
+    <h5 id="opDashTitle">Operator Dashboard</h5>
+    <button onclick="logoutOperator()">Logout</button>
+  </div>
+  <div class="container mt-3" style="max-width:700px;">
+    <!-- Work order list view -->
+    <div id="opWOList">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">Your Line's Work Orders</h6>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="opHideCompleted" onchange="renderOpDash()">
+          <label class="form-check-label" for="opHideCompleted">Hide Completed</label>
+        </div>
+      </div>
+      <div id="opBusyAlert" class="alert alert-warning py-2 small d-none"></div>
+      <div id="opWOCards"></div>
+    </div>
+    <!-- Work order detail view -->
+    <div id="opWODetail" style="display:none;">
+      <div id="opWODetailContent"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SUPERVISOR DASHBOARD -->
+<div id="page-supervisor" class="page">
+  <div class="topbar">
+    <button onclick="goToRole()">🏠 Home</button>
+    <h5>Supervisor Dashboard</h5>
+    <div style="width:80px;"></div>
+  </div>
+  <ul class="nav nav-tabs px-3 pt-2 bg-white" id="supervisorTabs">
+    <li class="nav-item"><a class="nav-link active" href="#" onclick="supTab(0,this)">Dashboard</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="supTab(1,this)">Unit Progress</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="supTab(2,this)">Time Progress</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="supTab(3,this)">Work Orders</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="supTab(4,this)">Operators</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="supTab(5,this)">Lines</a></li>
+  </ul>
+  <div class="container mt-3" style="max-width:800px;">
+    <!-- Tab 0: Dashboard -->
+    <div id="supTab0">
+      <div class="card mb-4">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-semibold">Require PIN Login</div>
+            <div class="small text-muted">When on, operators and managers must enter their 4-digit PIN to log in.</div>
+          </div>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="requirePinToggle" role="switch"
+              onchange="toggleRequirePin(this.checked)" style="width:3em;height:1.5em;">
+          </div>
+        </div>
+      </div>
+      <h6>Active Operators by Work Order</h6>
+      <div id="activeOpsChartWrap" class="mb-4">
+        <canvas id="activeOpsChart"></canvas>
+      </div>
+      <h6 class="mt-2">Operator Status by Production Line</h6>
+      <div id="lineStatusChartWrap" class="mb-4">
+        <canvas id="lineStatusChart"></canvas>
+      </div>
+      <h6 class="mt-2">Line Efficiency</h6>
+      <div id="lineEfficiencyChartWrap" class="mb-4">
+        <canvas id="lineEfficiencyChart"></canvas>
+      </div>
+      <h6 class="mt-2">Pause Time by Reason</h6>
+      <div id="pauseChartWrap">
+        <div class="chart-container mb-3"><canvas id="pauseChart" height="220"></canvas></div>
+        <div id="pauseLegend"></div>
+      </div>
+    </div>
+    <!-- Tab 1: WO Progress -->
+    <div id="supTab1" style="display:none;">
+      <h6>Work Order Progress</h6>
+      <div id="woProgressLineChips" class="scroll-chips mb-2"></div>
+      <div id="woProgressWrap" class="mb-4"></div>
+    </div>
+    <!-- Tab 2: Time Progress -->
+    <div id="supTab2" style="display:none;">
+      <h6>Work Order Time Progress</h6>
+      <div id="woTimeProgressLineChips" class="scroll-chips mb-2"></div>
+      <div id="woTimeProgressWrap" class="mb-4"></div>
+    </div>
+    <!-- Tab 3: Work Orders -->
+    <div id="supTab3" style="display:none;">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <h6 class="mb-0">Work Orders</h6>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="supHideCompleted" onchange="renderSupWOs()">
+            <label class="form-check-label small" for="supHideCompleted">Hide Completed</label>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="downloadCSVTemplate()" title="Download blank CSV template">⬇ CSV Template</button>
+          <button class="btn btn-sm btn-outline-success" onclick="showCSVUploadModal()" title="Bulk import work orders from CSV">⬆ Import CSV</button>
+          <button class="btn btn-sm btn-outline-info" onclick="exportWOCSV()" title="Export all work orders with time details">⬇ Export Data</button>
+          <button class="btn btn-sm btn-primary" onclick="showAddWOModal()">+ Add Work Order</button>
+        </div>
+      </div>
+      <div id="supWOLineChips" class="scroll-chips mb-2"></div>
+      <div id="supWOList"></div>
+    </div>
+    <!-- Tab 4: Operators -->
+    <div id="supTab4" style="display:none;">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0">Operator Summary</h6>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="downloadOperatorsTemplate()" title="Download blank CSV template">⬇ CSV Template</button>
+          <button class="btn btn-sm btn-outline-success" onclick="showOpCSVUploadModal()" title="Bulk import operators from CSV">⬆ Import CSV</button>
+        </div>
+      </div>
+      <div id="supOpList"></div>
+    </div>
+    <!-- Tab 5: Lines -->
+    <div id="supTab5" style="display:none;">
+      <h6>Line Summary</h6>
+      <div id="supLineChips" class="scroll-chips mb-2"></div>
+      <div id="supLineList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ STYLE MINUTES -->
+<div id="page-style-minutes" class="page">
+  <div class="topbar">
+    <button onclick="goToRole()">🏠 Home</button>
+    <h5>Style Minutes</h5>
+    <div style="width:80px;"></div>
+  </div>
+  <div class="container mt-3" style="max-width:700px;">
+    <div class="card">
+      <div class="card-body">
+        <h6>Mins per Unit by Style</h6>
+        <p class="text-muted small">Actual minutes spent per completed unit for each style.</p>
+        <div id="styleMinsChart"></div>
+        <div id="styleMinsEmpty" class="text-center text-muted py-4" style="display:none;">
+          No data yet — complete some work orders to see style minutes.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ EFFICIENCY -->
+<div id="page-efficiency" class="page">
+  <div class="topbar">
+    <button onclick="goToRole()">🏠 Home</button>
+    <h5>Style Efficiency</h5>
+    <div style="width:80px;"></div>
+  </div>
+  <div class="container mt-3" style="max-width:700px;">
+    <div class="card">
+      <div class="card-body">
+        <h6>Efficiency by Style (%)</h6>
+        <p class="text-muted small">Formula: (Target Mins/Unit ÷ Actual Mins/Unit) × 100. Green = above target, Red = below.</p>
+        <div id="efficiencyChart"></div>
+        <div id="efficiencyEmpty" class="text-center text-muted py-4" style="display:none;">
+          No data yet — complete some work orders to see efficiency.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ADD WORK ORDER MODAL -->
+<div class="modal fade" id="addWOModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add New Work Order</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label small">Name</label><input type="text" id="woName" class="form-control"></div>
+        <div class="mb-2"><label class="form-label small">Style</label><input type="text" id="woStyle" class="form-control"></div>
+        <div class="row mb-2">
+          <div class="col"><label class="form-label small">Size</label><input type="text" id="woSize" class="form-control"></div>
+          <div class="col"><label class="form-label small">Colorway</label><input type="text" id="woColorway" class="form-control"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">Line Assignment</label><input type="text" id="woLine" class="form-control"></div>
+        <div class="row mb-2">
+          <div class="col"><label class="form-label small">Target Quantity</label><input type="number" id="woQty" class="form-control" min="0"></div>
+          <div class="col"><label class="form-label small">Target Mins/Unit</label><input type="number" id="woMins" class="form-control" min="0" step="0.1"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="addWorkOrder()">Add Work Order</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PIN ENTRY MODAL -->
+<div class="modal fade" id="pinModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header pb-1">
+        <h5 class="modal-title">Enter PIN</h5>
+      </div>
+      <div class="modal-body text-center">
+        <div id="pinOperatorName" class="fw-semibold mb-3"></div>
+        <input type="password" id="pinInput" class="form-control form-control-lg text-center fw-bold"
+          maxlength="4" inputmode="numeric" pattern="[0-9]{4}" placeholder="••••"
+          style="letter-spacing:0.5em;font-size:1.6rem;" autocomplete="off"
+          onkeydown="if(event.key==='Enter') submitPin()">
+        <div id="pinError" class="text-danger small mt-2" style="display:none;">Incorrect PIN. Try again.</div>
+        <div id="pinNoPinWarning" class="text-warning small mt-2" style="display:none;">
+          This person has no PIN set. Ask a supervisor to add one.
+        </div>
+      </div>
+      <div class="modal-footer pt-1">
+        <button class="btn btn-secondary" onclick="cancelPin()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPin()">Login</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ OPERATOR CSV UPLOAD MODAL -->
+<div class="modal fade" id="opCSVUploadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Import Operators from CSV</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">Upload a CSV file with the following columns:</p>
+        <code class="d-block bg-light p-2 rounded small mb-2">name, line, role, pin</code>
+        <p class="small text-muted mb-3">The <code>role</code> column should be <code>operator</code> or <code>manager</code>. The <code>pin</code> column is optional — leave it blank for no PIN.<br>
+          Don't have a template? <a href="#" onclick="downloadOperatorsTemplate();return false;">Download the CSV template</a>.
+        </p>
+        <div class="mb-3">
+          <label class="form-label">Select CSV File</label>
+          <input type="file" class="form-control" id="opCSVFileInput" accept=".csv">
+        </div>
+        <div id="opCSVUploadResult" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" onclick="uploadOperatorsCSV()">Upload & Import</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ CSV UPLOAD MODAL -->
+<div class="modal fade" id="csvUploadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Import Work Orders from CSV</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">Upload a CSV file with the following columns:</p>
+        <code class="d-block bg-light p-2 rounded small mb-3">name, style, size, colorway, line, target_quantity, target_minutes_per_unit</code>
+        <p class="small text-muted mb-3">
+          Don't have a template? <a href="#" onclick="downloadCSVTemplate();return false;">Download the CSV template</a>.
+        </p>
+        <div class="mb-3">
+          <label class="form-label">Select CSV File</label>
+          <input type="file" class="form-control" id="csvFileInput" accept=".csv">
+        </div>
+        <div id="csvUploadResult" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" onclick="uploadCSV()">Upload & Import</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAUSE MODAL -->
+<div class="modal fade" id="pauseModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Pause Reason</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="pauseReasonBtns"></div>
+      <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ─── Global State ─────────────────────────────────────────────────────────────
+let state = { operators: [], work_orders: [], summaries: {}, pause_reasons: [] };
+let currentRole = null;
+let currentOperator = null;
+let selectedWOId = null;
+let supSelectedLine = null;
+let opSelectedLine = null;
+let supCurrentTab = 0;
+let pauseChart = null;
+let activeOpsChart = null;
+let lineStatusChart = null;
+let lineEfficiencyChart = null;
+
+// ─── API ─────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function refreshState() {
+  try {
+    state = await api('GET', '/api/state');
+    renderCurrentView();
+  } catch (e) { console.error('State refresh failed', e); }
+}
+
+// Auto-refresh every 5 seconds
+setInterval(refreshState, 5000);
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function goToRole() {
+  currentRole = null;
+  currentOperator = null;
+  selectedWOId = null;
+  showPage('page-role');
+}
+
+function logoutOperator() {
+  currentOperator = null;
+  selectedWOId = null;
+  showPage('page-op-select');
+  renderOpSelect();
+}
+
+function selectRole(role) {
+  currentRole = role;
+  if (role === 'SUPERVISOR') { showPage('page-supervisor'); refreshState(); }
+  else if (role === 'OPERATOR' || role === 'MANAGER') { showPage('page-op-select'); refreshState(); }
+  else if (role === 'STYLE_MINUTES') { showPage('page-style-minutes'); refreshState(); }
+  else if (role === 'EFFICIENCY') { showPage('page-efficiency'); refreshState(); }
+}
+
+function renderCurrentView() {
+  if (currentRole === 'SUPERVISOR') renderSupervisor();
+  else if ((currentRole === 'OPERATOR' || currentRole === 'MANAGER') && !currentOperator) renderOpSelect();
+  else if ((currentRole === 'OPERATOR' || currentRole === 'MANAGER') && currentOperator) renderOpDash();
+  else if (currentRole === 'STYLE_MINUTES') renderStyleMins();
+  else if (currentRole === 'EFFICIENCY') renderEfficiency();
+}
+
+// ─── Operator Selection ───────────────────────────────────────────────────────
+function renderOpSelect() {
+  const roleLabel = currentRole === 'MANAGER' ? 'Manager' : 'Operator';
+  const roleFilter = currentRole === 'MANAGER' ? 'manager' : 'operator';
+  document.getElementById('opSelectTitle').textContent = `${roleLabel} Login`;
+  const ops = state.operators.filter(o => (o.role || 'operator') === roleFilter);
+  const lines = [...new Set(ops.map(o => o.line || 'Unassigned'))].sort();
+
+  // Filter chips
+  const chips = document.getElementById('opLineChips');
+  chips.innerHTML = chipHtml(null, 'All', opSelectedLine, l => { opSelectedLine = l; renderOpSelect(); });
+  lines.forEach(l => chips.innerHTML += chipHtml(l, l, opSelectedLine, l => { opSelectedLine = l; renderOpSelect(); }));
+
+  const filtered = opSelectedLine ? ops.filter(o => (o.line || 'Unassigned') === opSelectedLine) : ops;
+  const list = document.getElementById('opList');
+  if (filtered.length === 0) {
+    list.innerHTML = `<p class="text-muted">No ${roleLabel.toLowerCase()}s added yet. Add one above.</p>`;
+    return;
+  }
+  const summaries = state.summaries.operator_summaries || {};
+  list.innerHTML = filtered.map(op => {
+    const status = summaries[op.id]?.status || 'Idle';
+    const statusClass = status.startsWith('Working') ? 'op-working' : status.startsWith('Paused') ? 'op-paused' : 'op-idle';
+    return `
+    <div class="card wo-card mb-2" onclick="loginAsOperator('${op.id}')">
+      <div class="card-body py-2 d-flex justify-content-between align-items-center">
+        <div>
+          <div class="fw-semibold">${esc(op.name)}</div>
+          ${op.line ? `<div class="small text-muted">Line: ${esc(op.line)}</div>` : ''}
+        </div>
+        <span class="op-badge ${statusClass}">${esc(status)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function addOperator() {
+  const name = document.getElementById('newOpName').value.trim();
+  const line = document.getElementById('newOpLine').value.trim();
+  const pin  = document.getElementById('newOpPin').value.trim();
+  if (!name) return;
+  if (pin && (!/^\d{4}$/.test(pin))) {
+    alert('PIN must be exactly 4 digits (or leave blank for no PIN).');
+    return;
+  }
+  const role = currentRole === 'MANAGER' ? 'manager' : 'operator';
+  await api('POST', '/api/operators', { name, line, role, pin });
+  document.getElementById('newOpName').value = '';
+  document.getElementById('newOpLine').value = '';
+  document.getElementById('newOpPin').value = '';
+  await refreshState();
+}
+
+function loginAsOperator(opId) {
+  const op = state.operators.find(o => o.id === opId);
+  if (!op) return;
+
+  if (state.require_pin) {
+    if (!op.has_pin) {
+      // Operator has no PIN set — show warning, block login
+      pendingLoginOpId = null;
+      document.getElementById('pinOperatorName').textContent = op.name;
+      document.getElementById('pinError').style.display = 'none';
+      document.getElementById('pinNoPinWarning').style.display = '';
+      document.getElementById('pinInput').style.display = 'none';
+      document.querySelector('#pinModal .btn-primary').style.display = 'none';
+      pinModalInst = pinModalInst || new bootstrap.Modal(document.getElementById('pinModal'));
+      document.getElementById('pinInput').value = '';
+      pinModalInst.show();
+      return;
+    }
+    // Show PIN entry modal
+    pendingLoginOpId = opId;
+    document.getElementById('pinOperatorName').textContent = op.name;
+    document.getElementById('pinError').style.display = 'none';
+    document.getElementById('pinNoPinWarning').style.display = 'none';
+    document.getElementById('pinInput').style.display = '';
+    document.querySelector('#pinModal .btn-primary').style.display = '';
+    pinModalInst = pinModalInst || new bootstrap.Modal(document.getElementById('pinModal'));
+    document.getElementById('pinInput').value = '';
+    pinModalInst.show();
+    setTimeout(() => document.getElementById('pinInput').focus(), 400);
+    return;
+  }
+
+  // No PIN required — log in immediately
+  completeLogin(op);
+}
+
+function completeLogin(op) {
+  currentOperator = op;
+  selectedWOId = null;
+  showPage('page-op-dash');
+  renderOpDash();
+}
+
+let pendingLoginOpId = null;
+let pinModalInst = null;
+
+async function submitPin() {
+  const entered = document.getElementById('pinInput').value.trim();
+  if (!entered || !/^\d{4}$/.test(entered)) {
+    document.getElementById('pinError').textContent = 'Please enter a 4-digit PIN.';
+    document.getElementById('pinError').style.display = '';
+    return;
+  }
+  try {
+    const result = await api('POST', `/api/operators/${pendingLoginOpId}/verify-pin`, { pin: entered });
+    if (result.valid) {
+      pinModalInst.hide();
+      const op = state.operators.find(o => o.id === pendingLoginOpId);
+      if (op) completeLogin(op);
+    } else {
+      document.getElementById('pinInput').value = '';
+      document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
+      document.getElementById('pinError').style.display = '';
+      document.getElementById('pinInput').focus();
+    }
+  } catch (e) {
+    document.getElementById('pinError').textContent = 'Error verifying PIN. Please try again.';
+    document.getElementById('pinError').style.display = '';
+  }
+}
+
+function cancelPin() {
+  pendingLoginOpId = null;
+  pinModalInst?.hide();
+}
+
+async function toggleRequirePin(checked) {
+  await api('POST', '/api/settings', { require_pin: checked });
+  await refreshState();
+}
+
+function syncPinToggle() {
+  const toggle = document.getElementById('requirePinToggle');
+  if (toggle) toggle.checked = !!state.require_pin;
+}
+
+// ─── Operator Dashboard ───────────────────────────────────────────────────────
+function renderOpDash() {
+  if (!currentOperator) return;
+  // Sync operator in case name/line updated
+  const fresh = state.operators.find(o => o.id === currentOperator.id);
+  if (fresh) currentOperator = fresh;
+
+  const roleLabel = currentRole === 'MANAGER' ? 'Manager' : 'Operator';
+  document.getElementById('opDashTitle').textContent =
+    `${roleLabel}: ${currentOperator.name} — Line: ${currentOperator.line || 'N/A'}`;
+
+  if (selectedWOId) {
+    renderOpWODetail();
+  } else {
+    renderOpWOList();
+  }
+}
+
+function renderOpWOList() {
+  document.getElementById('opWOList').style.display = '';
+  document.getElementById('opWODetail').style.display = 'none';
+
+  const hideCompleted = document.getElementById('opHideCompleted').checked;
+  const myLine = currentOperator.line;
+
+  const busyWO = getBusyWO(currentOperator.id);
+  const alert = document.getElementById('opBusyAlert');
+  if (busyWO) {
+    const activeEntry = busyWO.time_entries.find(e => e.operator_id === currentOperator.id && !e.end_time);
+    const isPaused = activeEntry && activeEntry.pause_reason;
+    alert.className = `alert py-2 small ${isPaused ? 'alert-secondary' : 'alert-warning'}`;
+    alert.textContent = isPaused
+      ? `You are currently paused on: ${busyWO.name}. Resume there to continue.`
+      : `You are currently active on: ${busyWO.name}. Finish or pause that work to start another.`;
+    alert.classList.remove('d-none');
+  } else {
+    alert.classList.add('d-none');
+  }
+
+  let wos = state.work_orders.filter(wo => wo.line === myLine);
+  if (hideCompleted) wos = wos.filter(wo => wo.status !== 'COMPLETED');
+
+  const container = document.getElementById('opWOCards');
+  if (wos.length === 0) {
+    container.innerHTML = '<p class="text-muted mt-3">No work orders assigned to this line.</p>';
+    return;
+  }
+
+  container.innerHTML = wos.map(wo => {
+    const isThisBusy = busyWO && busyWO.id === wo.id;
+    const canSelect = !busyWO || isThisBusy;
+    const disabled = wo.status === 'COMPLETED' || !canSelect;
+    const activeEntry = wo.time_entries.find(e => e.operator_id === currentOperator.id && !e.end_time);
+    const badgeText = activeEntry ? (activeEntry.pause_reason ? 'PAUSED' : 'ACTIVE') : '';
+    const pct = wo.target_quantity > 0 ? Math.round(wo.completed_quantity / wo.target_quantity * 100) : 0;
+    return `
+      <div class="card wo-card mb-2 ${disabled ? 'disabled-card' : ''}" onclick="${disabled ? '' : `openOpWO('${wo.id}')`}">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-semibold">${esc(wo.name)}</div>
+              <div class="small text-muted">Style: ${esc(wo.style)} | Size: ${esc(wo.size)} | Color: ${esc(wo.colorway)}</div>
+              <div class="small">Progress: ${wo.completed_quantity} / ${wo.target_quantity}</div>
+              <div class="small text-secondary">Active Time: ${wo.total_active_mins} mins</div>
+            </div>
+            <div>
+              ${badgeText ? `<span class="op-badge ${badgeText === 'ACTIVE' ? 'op-working' : 'op-paused'}">${badgeText}</span>` : ''}
+              ${wo.status === 'COMPLETED' ? '<span class="op-badge op-working">✓ DONE</span>' : ''}
+            </div>
+          </div>
+          <div class="progress mt-2"><div class="progress-bar bg-primary" style="width:${pct}%"></div></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openOpWO(woId) {
+  selectedWOId = woId;
+  renderOpWODetail();
+}
+
+function renderOpWODetail() {
+  document.getElementById('opWOList').style.display = 'none';
+  document.getElementById('opWODetail').style.display = '';
+
+  const wo = state.work_orders.find(w => w.id === selectedWOId);
+  if (!wo) { selectedWOId = null; renderOpWOList(); return; }
+
+  const activeEntry = wo.time_entries.find(e => e.operator_id === currentOperator.id && !e.end_time);
+  const isWorking = activeEntry && !activeEntry.pause_reason;
+  const isPaused = activeEntry && activeEntry.pause_reason;
+  const busyWO = getBusyWO(currentOperator.id);
+  const canStart = !busyWO || busyWO.id === wo.id;
+
+  const pct = wo.target_quantity > 0 ? Math.round(wo.completed_quantity / wo.target_quantity * 100) : 0;
+
+  let myStatusBadge = '';
+  if (isWorking) myStatusBadge = '<span class="badge bg-success ms-1">You are active</span>';
+  else if (isPaused) myStatusBadge = `<span class="badge bg-warning text-dark ms-1">Paused: ${esc(activeEntry.pause_reason)}</span>`;
+
+  let actionButtons = '';
+  if (wo.status === 'COMPLETED') {
+    actionButtons = '<div class="alert alert-success">This work order is completed.</div>';
+  } else if (!isWorking) {
+    const btnText = isPaused ? 'RESUME WORK' : (canStart ? 'START WORK' : 'ALREADY BUSY ON ANOTHER');
+    const btnClass = canStart ? 'btn-success' : 'btn-secondary';
+    actionButtons = `<button class="btn ${btnClass} action-btn w-100 mb-3" ${canStart ? '' : 'disabled'}
+      onclick="startWork('${wo.id}')">${btnText}</button>`;
+  } else {
+    const allUnitsDone = wo.completed_quantity >= wo.target_quantity;
+    const completeCol = currentRole === 'MANAGER' ? `
+        <div class="col">
+          ${allUnitsDone
+            ? `<button class="btn btn-danger action-btn w-100" onclick="stopWork('${wo.id}')">COMPLETE W/O</button>`
+            : `<button class="btn btn-danger action-btn w-100" disabled title="Log all units before completing">COMPLETE W/O</button>
+               <div class="text-warning small mt-1 text-center">Log all ${wo.target_quantity} units first</div>`
+          }
+        </div>` : '';
+    actionButtons = `
+      <div class="row g-2 mb-3">
+        <div class="col">
+          <button class="btn action-btn w-100" style="background:#fdd835;color:#000;border:none;"
+            onclick="showPauseModal('${wo.id}')">PAUSE</button>
+        </div>
+        <div class="col">
+          <button class="btn btn-danger action-btn w-100" onclick="stopWork('${wo.id}')">STOP WORK</button>
+        </div>
+        ${completeCol}
+      </div>`;
+  }
+
+  document.getElementById('opWODetailContent').innerHTML = `
+    <h5>${esc(wo.name)} ${myStatusBadge}</h5>
+    <div class="small text-muted mb-1">Style: ${esc(wo.style)} | Size: ${esc(wo.size)} | Color: ${esc(wo.colorway)}</div>
+    <span class="badge status-${wo.status} badge-status mb-3">${wo.status.replace('_',' ')}</span>
+    <div class="mb-1 fw-semibold">Progress: ${wo.completed_quantity} / ${wo.target_quantity}</div>
+    <div class="progress mb-1"><div class="progress-bar bg-primary" style="width:${pct}%"></div></div>
+    <div class="d-flex justify-content-between small text-secondary mb-4">
+      <span>Active Time: ${wo.total_active_mins} mins</span>
+      <span>Target Mins/Unit: ${wo.target_minutes_per_unit}</span>
+    </div>
+    ${actionButtons}
+    ${wo.status !== 'COMPLETED' && currentRole === 'MANAGER' ? `
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6>Log Completion</h6>
+        <div class="d-flex gap-2">
+          <input type="number" id="completionAmt" class="form-control" placeholder="Amount" min="1">
+          <button class="btn btn-primary" onclick="logCompletion('${wo.id}')">Log</button>
+        </div>
+      </div>
+    </div>` : ''}
+    <button class="btn btn-link text-decoration-none w-100" onclick="selectedWOId=null;renderOpWOList()">← Back to Work Order List</button>
+  `;
+}
+
+// ─── Work Order Actions ────────────────────────────────────────────────────────
+async function startWork(woId) {
+  await api('POST', `/api/work-orders/${woId}/start`, {
+    operator_id: currentOperator.id,
+    operator_name: currentOperator.name
+  });
+  await refreshState();
+}
+
+async function stopWork(woId) {
+  await api('POST', `/api/work-orders/${woId}/stop`, { operator_id: currentOperator.id });
+  await refreshState();
+}
+
+async function logCompletion(woId) {
+  const amt = parseInt(document.getElementById('completionAmt').value);
+  if (!amt || amt < 1) return;
+  await api('POST', `/api/work-orders/${woId}/complete-quantity`, { amount: amt });
+  document.getElementById('completionAmt').value = '';
+  await refreshState();
+}
+
+function showPauseModal(woId) {
+  const reasons = state.pause_reasons;
+  document.getElementById('pauseReasonBtns').innerHTML = reasons.map(r =>
+    `<button class="btn btn-outline-secondary w-100 mb-2" onclick="pauseWork('${woId}','${r}')">${r}</button>`
+  ).join('');
+  new bootstrap.Modal(document.getElementById('pauseModal')).show();
+}
+
+async function pauseWork(woId, reason) {
+  bootstrap.Modal.getInstance(document.getElementById('pauseModal'))?.hide();
+  await api('POST', `/api/work-orders/${woId}/pause`, {
+    operator_id: currentOperator.id,
+    operator_name: currentOperator.name,
+    reason
+  });
+  await refreshState();
+}
+
+// ─── Supervisor ───────────────────────────────────────────────────────────────
+let supWOLineFilter = null;
+let supLineFilter = null;
+let woProgressLineFilter = null;
+let woTimeProgressLineFilter = null;
+
+function supTab(idx, el) {
+  supCurrentTab = idx;
+  [0,1,2,3,4,5].forEach(i => {
+    document.getElementById(`supTab${i}`).style.display = i === idx ? '' : 'none';
+  });
+  document.querySelectorAll('#supervisorTabs .nav-link').forEach((a,i) => {
+    a.classList.toggle('active', i === idx);
+  });
+  event.preventDefault();
+  renderSupervisor();
+}
+
+function renderSupervisor() {
+  syncPinToggle();
+  if (supCurrentTab === 0) { renderActiveOpsChart(); renderLineStatusChart(); renderLineEfficiencyChart(); renderPauseChart(); }
+  else if (supCurrentTab === 1) renderWOProgress();
+  else if (supCurrentTab === 2) renderWOTimeProgress();
+  else if (supCurrentTab === 3) renderSupWOs();
+  else if (supCurrentTab === 4) renderSupOps();
+  else if (supCurrentTab === 5) renderSupLines();
+}
+
+function renderWOProgress() {
+  const container = document.getElementById('woProgressWrap');
+  let active = state.work_orders.filter(wo => wo.status === 'IN_PROGRESS');
+
+  // Build line filter chips
+  const allLines = [...new Set(active.map(wo => wo.line || 'Unassigned'))].sort();
+  const chips = document.getElementById('woProgressLineChips');
+  chips.innerHTML = chipHtml(null, 'All Lines', woProgressLineFilter, v => { woProgressLineFilter = v; renderWOProgress(); });
+  allLines.forEach(l => chips.innerHTML += chipHtml(l, l, woProgressLineFilter, v => { woProgressLineFilter = v; renderWOProgress(); }));
+
+  if (woProgressLineFilter) active = active.filter(wo => (wo.line || 'Unassigned') === woProgressLineFilter);
+
+  if (active.length === 0) {
+    container.innerHTML = '<p class="text-muted small text-center py-2">No work orders currently in progress.</p>';
+    return;
+  }
+
+  container.innerHTML = active.map(wo => {
+    const pct = wo.target_quantity > 0
+      ? Math.min(100, Math.round(wo.completed_quantity / wo.target_quantity * 100))
+      : 0;
+    const remaining = Math.max(0, wo.target_quantity - wo.completed_quantity);
+
+    // Colour shifts green as it approaches target
+    const barColor = pct >= 100 ? '#2e7d32' : pct >= 75 ? '#388e3c' : pct >= 50 ? '#f57c00' : '#1976d2';
+
+    // Count active and paused operators on this WO
+    const activeOps  = wo.time_entries.filter(e => !e.end_time && !e.pause_reason).length;
+    const pausedOps  = wo.time_entries.filter(e => !e.end_time &&  e.pause_reason).length;
+    const opSummary  = [
+      activeOps  ? `<span class="text-success fw-semibold">${activeOps} working</span>` : '',
+      pausedOps  ? `<span class="text-warning fw-semibold">${pausedOps} paused</span>`  : '',
+    ].filter(Boolean).join(', ') || '<span class="text-muted">0 operators</span>';
+
+    return `
+      <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex justify-content-between align-items-baseline mb-1">
+            <div>
+              <span class="fw-semibold">${esc(wo.name)}</span>
+              ${wo.line ? `<span class="small text-muted ms-2">Line: ${esc(wo.line)}</span>` : ''}
+              <span class="small ms-2">${esc(wo.style)}</span>
+            </div>
+            <span class="small text-muted">${opSummary}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <div class="flex-grow-1" style="background:#e0e0e0;border-radius:6px;height:14px;overflow:hidden;">
+              <div style="width:${pct}%;background:${barColor};height:100%;border-radius:6px;"></div>
+            </div>
+            <span class="small fw-semibold" style="min-width:38px;text-align:right;">${pct}%</span>
+          </div>
+          <div class="d-flex justify-content-between mt-1" style="font-size:0.78rem;color:#666;">
+            <span>${wo.completed_quantity} / ${wo.target_quantity} units</span>
+            <span>${remaining} remaining &nbsp;·&nbsp; ${wo.total_active_mins} active mins</span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderWOTimeProgress() {
+  const container = document.getElementById('woTimeProgressWrap');
+  let active = state.work_orders.filter(wo => wo.status === 'IN_PROGRESS');
+
+  // Build line filter chips
+  const allLines = [...new Set(active.map(wo => wo.line || 'Unassigned'))].sort();
+  const chips = document.getElementById('woTimeProgressLineChips');
+  chips.innerHTML = chipHtml(null, 'All Lines', woTimeProgressLineFilter, v => { woTimeProgressLineFilter = v; renderWOTimeProgress(); });
+  allLines.forEach(l => chips.innerHTML += chipHtml(l, l, woTimeProgressLineFilter, v => { woTimeProgressLineFilter = v; renderWOTimeProgress(); }));
+
+  if (woTimeProgressLineFilter) active = active.filter(wo => (wo.line || 'Unassigned') === woTimeProgressLineFilter);
+
+  if (active.length === 0) {
+    container.innerHTML = '<p class="text-muted small text-center py-2">No work orders currently in progress.</p>';
+    return;
+  }
+
+  container.innerHTML = active.map(wo => {
+    const totalTargetMins = wo.target_minutes_per_unit * wo.target_quantity;
+    const activeMins      = wo.total_active_mins;
+    const remainingMins   = Math.max(0, totalTargetMins - activeMins);
+    const pct             = totalTargetMins > 0
+      ? Math.min(100, Math.round((activeMins / totalTargetMins) * 100))
+      : 0;
+
+    // Colour: blue while early, amber past 75%, red if over target
+    const barColor = activeMins > totalTargetMins ? '#d32f2f'
+                   : pct >= 75 ? '#f57c00'
+                   : '#1976d2';
+
+    const activeOps = wo.time_entries.filter(e => !e.end_time && !e.pause_reason).length;
+    const pausedOps = wo.time_entries.filter(e => !e.end_time &&  e.pause_reason).length;
+    const opSummary = [
+      activeOps ? `<span class="text-success fw-semibold">${activeOps} working</span>` : '',
+      pausedOps ? `<span class="text-warning fw-semibold">${pausedOps} paused</span>`  : '',
+    ].filter(Boolean).join(', ') || '<span class="text-muted">0 operators</span>';
+
+    const overTime = activeMins > totalTargetMins;
+    const overMins = overTime ? Math.round((activeMins - totalTargetMins) * 10) / 10 : null;
+
+    // Real-time minutes remaining = remaining mins / active operators
+    let realTimeStr;
+    if (overTime) {
+      realTimeStr = null; // already over, not applicable
+    } else if (activeOps > 0) {
+      const rtMins = Math.round((remainingMins / activeOps) * 10) / 10;
+      const rtDays = Math.round((rtMins / 450) * 100) / 100;
+      realTimeStr = `${rtMins} min${rtMins !== 1 ? 's' : ''} at current staffing (${rtDays} day${rtDays !== 1 ? 's' : ''})`;
+    } else {
+      realTimeStr = 'No operators active';
+    }
+
+    return `
+      <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex justify-content-between align-items-baseline mb-1">
+            <div>
+              <span class="fw-semibold">${esc(wo.name)}</span>
+              ${wo.line ? `<span class="small text-muted ms-2">Line: ${esc(wo.line)}</span>` : ''}
+              <span class="small ms-2">${esc(wo.style)}</span>
+            </div>
+            <span class="small text-muted">${opSummary}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <div class="flex-grow-1" style="background:#e0e0e0;border-radius:6px;height:14px;overflow:hidden;">
+              <div style="width:${pct}%;background:${barColor};height:100%;border-radius:6px;"></div>
+            </div>
+            <span class="small fw-semibold" style="min-width:38px;text-align:right;">${pct}%</span>
+          </div>
+          <div class="d-flex justify-content-between mt-1" style="font-size:0.78rem;color:#666;">
+            <span>${activeMins} mins active &nbsp;·&nbsp; ${Math.round(totalTargetMins * 10) / 10} mins target</span>
+            <span>${overTime
+              ? `<span class="text-danger fw-semibold">${overMins} mins over</span>`
+              : `${Math.round(remainingMins * 10) / 10} mins remaining`
+            }</span>
+          </div>
+          <div class="mt-1" style="font-size:0.78rem;">
+            <span class="text-muted">Real-time remaining:&nbsp;</span>
+            ${overTime
+              ? `<span class="text-danger fw-semibold">Over target</span>`
+              : activeOps > 0
+                ? `<span class="fw-semibold">${realTimeStr}</span>`
+                : `<span class="text-muted fst-italic">${realTimeStr}</span>`
+            }
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderActiveOpsChart() {
+  const wrap = document.getElementById('activeOpsChartWrap');
+
+  // Only consider IN_PROGRESS work orders
+  const inProgress = state.work_orders.filter(wo => wo.status === 'IN_PROGRESS');
+
+  if (inProgress.length === 0) {
+    if (activeOpsChart) { activeOpsChart.destroy(); activeOpsChart = null; }
+    wrap.innerHTML = '<p class="text-muted text-center py-3 small">No work orders currently in progress.</p>';
+    return;
+  }
+
+  // Count operators actively working (open entry, no pause reason) per work order
+  const labels = inProgress.map(wo => wo.name);
+  const activeCounts = inProgress.map(wo =>
+    wo.time_entries.filter(e => !e.end_time && !e.pause_reason).length
+  );
+  const pausedCounts = inProgress.map(wo =>
+    wo.time_entries.filter(e => !e.end_time && e.pause_reason).length
+  );
+
+  // Dynamically size the chart height so bars don't get squashed
+  const barHeight = 42;
+  const chartHeight = Math.max(120, inProgress.length * barHeight + 60);
+  wrap.innerHTML = `<canvas id="activeOpsChart" height="${chartHeight}" style="width:100%;"></canvas>`;
+
+  if (activeOpsChart) { activeOpsChart.destroy(); activeOpsChart = null; }
+  const ctx = document.getElementById('activeOpsChart').getContext('2d');
+  activeOpsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Active',
+          data: activeCounts,
+          backgroundColor: '#2e7d32',
+          borderRadius: 4,
+          barThickness: 18,
+        },
+        {
+          label: 'Paused',
+          data: pausedCounts,
+          backgroundColor: '#fdd835',
+          borderRadius: 4,
+          barThickness: 18,
+        },
+      ],
+    },
+    options: {
+      animation: false,
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: 'Number of Operators' },
+        },
+        y: { stacked: true },
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.x} operator${ctx.parsed.x !== 1 ? 's' : ''}`,
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderLineStatusChart() {
+  const wrap = document.getElementById('lineStatusChartWrap');
+  const summaries = state.summaries.operator_summaries || {};
+  const ops = state.operators;
+
+  if (ops.length === 0) {
+    if (lineStatusChart) { lineStatusChart.destroy(); lineStatusChart = null; }
+    wrap.innerHTML = '<p class="text-muted text-center py-3 small">No operators added yet.</p>';
+    return;
+  }
+
+  // Group operators by line, then count working / paused / idle per line
+  const lineNames = [...new Set(ops.map(o => o.line || 'Unassigned'))].sort();
+
+  const working = [], paused = [], idle = [];
+  lineNames.forEach(line => {
+    const lineOps = ops.filter(o => (o.line || 'Unassigned') === line);
+    let w = 0, p = 0, i = 0;
+    lineOps.forEach(op => {
+      const status = summaries[op.id]?.status || 'Idle';
+      if (status.startsWith('Working')) w++;
+      else if (status.startsWith('Paused')) p++;
+      else i++;
+    });
+    working.push(w);
+    paused.push(p);
+    idle.push(i);
+  });
+
+  const barHeight = 42;
+  const chartHeight = Math.max(120, lineNames.length * barHeight + 60);
+  wrap.innerHTML = `<canvas id="lineStatusChart" height="${chartHeight}" style="width:100%;"></canvas>`;
+
+  if (lineStatusChart) { lineStatusChart.destroy(); lineStatusChart = null; }
+  const ctx = document.getElementById('lineStatusChart').getContext('2d');
+  lineStatusChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: lineNames,
+      datasets: [
+        { label: 'Working', data: working, backgroundColor: '#2e7d32', borderRadius: 4, barThickness: 18 },
+        { label: 'Paused',  data: paused,  backgroundColor: '#fdd835', borderRadius: 4, barThickness: 18 },
+        { label: 'Idle',    data: idle,    backgroundColor: '#9e9e9e', borderRadius: 4, barThickness: 18 },
+      ],
+    },
+    options: {
+      animation: false,
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: 'Number of Operators' },
+        },
+        y: { stacked: true },
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.x} operator${ctx.parsed.x !== 1 ? 's' : ''}`,
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderLineEfficiencyChart() {
+  const wrap = document.getElementById('lineEfficiencyChartWrap');
+  const lineEff = state.summaries.line_efficiency || {};
+  const lineNames = Object.keys(lineEff).sort();
+
+  if (lineNames.length === 0) {
+    if (lineEfficiencyChart) { lineEfficiencyChart.destroy(); lineEfficiencyChart = null; }
+    wrap.innerHTML = '<p class="text-muted text-center py-3 small">No efficiency data yet — complete some units to see line efficiency.</p>';
+    return;
+  }
+
+  const values = lineNames.map(l => lineEff[l]);
+  // Colour bars: green ≥100%, yellow 80–99%, red <80%
+  const barColors = values.map(v => v >= 100 ? '#2e7d32' : v >= 80 ? '#fdd835' : '#d32f2f');
+
+  const barHeight = 42;
+  const chartHeight = Math.max(120, lineNames.length * barHeight + 60);
+  wrap.innerHTML = `<canvas id="lineEfficiencyChart" height="${chartHeight}" style="width:100%;"></canvas>`;
+
+  if (lineEfficiencyChart) { lineEfficiencyChart.destroy(); lineEfficiencyChart = null; }
+  const ctx = document.getElementById('lineEfficiencyChart').getContext('2d');
+  lineEfficiencyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: lineNames,
+      datasets: [{
+        label: 'Efficiency %',
+        data: values,
+        backgroundColor: barColors,
+        borderRadius: 4,
+        barThickness: 22,
+      }],
+    },
+    options: {
+      animation: false,
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          beginAtZero: true,
+          title: { display: true, text: 'Efficiency (%)' },
+          ticks: { callback: v => v + '%' },
+        },
+        y: {},
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.parsed.x}% efficiency`,
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderPauseChart() {
+  const totals = state.summaries.pause_totals || {};
+  const labels = Object.keys(totals);
+  const values = Object.values(totals);
+  const colors = ['#1976d2','#388e3c','#f57c00','#d32f2f','#7b1fa2','#0097a7'];
+
+  const wrap = document.getElementById('pauseChartWrap');
+  if (labels.length === 0) {
+    wrap.innerHTML = '<p class="text-muted text-center py-4">No pause data recorded yet.</p>';
+    return;
+  }
+  wrap.innerHTML = '<div class="chart-container mb-3"><canvas id="pauseChart" height="220"></canvas></div><div id="pauseLegend"></div>';
+
+  if (pauseChart) { pauseChart.destroy(); pauseChart = null; }
+  const ctx = document.getElementById('pauseChart').getContext('2d');
+  pauseChart = new Chart(ctx, {
+    type: 'pie',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+    options: { animation: false, plugins: { legend: { display: false } } }
+  });
+
+  document.getElementById('pauseLegend').innerHTML = labels.map((l,i) => `
+    <div class="d-flex align-items-center mb-1">
+      <div style="width:14px;height:14px;background:${colors[i%colors.length]};border-radius:3px;margin-right:8px;flex-shrink:0;"></div>
+      <span class="small">${esc(l)}: ${values[i]} mins</span>
+    </div>`).join('');
+}
+
+function renderSupWOs() {
+  const hideCompleted = document.getElementById('supHideCompleted').checked;
+  let wos = state.work_orders;
+  if (hideCompleted) wos = wos.filter(wo => wo.status !== 'COMPLETED');
+
+  const allLines = [...new Set(state.work_orders.map(wo => wo.line || 'Unassigned'))].sort();
+  const chips = document.getElementById('supWOLineChips');
+  chips.innerHTML = chipHtml(null, 'All Lines', supWOLineFilter, v => { supWOLineFilter = v; renderSupWOs(); });
+  allLines.forEach(l => chips.innerHTML += chipHtml(l, l, supWOLineFilter, v => { supWOLineFilter = v; renderSupWOs(); }));
+
+  if (supWOLineFilter) wos = wos.filter(wo => (wo.line || 'Unassigned') === supWOLineFilter);
+
+  const container = document.getElementById('supWOList');
+  if (wos.length === 0) { container.innerHTML = '<p class="text-muted">No work orders.</p>'; return; }
+
+  if (!supWOLineFilter) {
+    const grouped = groupBy(wos, wo => wo.line || 'Unassigned');
+    container.innerHTML = Object.entries(grouped).map(([line, lineWos]) => `
+      <div class="line-header">Line: ${esc(line)}</div>
+      ${lineWos.map(wo => supWOCardHtml(wo)).join('')}`).join('');
+  } else {
+    container.innerHTML = wos.map(supWOCardHtml).join('');
+  }
+}
+
+function supWOCardHtml(wo) {
+  const pct = wo.target_quantity > 0 ? Math.round(wo.completed_quantity / wo.target_quantity * 100) : 0;
+  const recentEntries = wo.time_entries.slice(-5);
+  return `
+    <div class="card mb-2">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-semibold">${esc(wo.name)}</div>
+            <div class="small text-muted">Style: ${esc(wo.style)} | Size: ${esc(wo.size)} | Color: ${esc(wo.colorway)}</div>
+            ${wo.line ? `<div class="small" style="color:#1976d2;">Line: ${esc(wo.line)}</div>` : ''}
+          </div>
+          <span class="badge status-${wo.status} badge-status">${wo.status.replace('_',' ')}</span>
+        </div>
+        <div class="mt-2 small fw-semibold">Progress: ${wo.completed_quantity} / ${wo.target_quantity}</div>
+        <div class="progress my-1"><div class="progress-bar bg-primary" style="width:${pct}%"></div></div>
+        <div class="d-flex justify-content-between small text-secondary">
+          <span>Active Time: ${wo.total_active_mins} mins</span>
+          <span>Target Mins/Unit: ${wo.target_minutes_per_unit}</span>
+        </div>
+        <hr class="my-1">
+        <div class="small text-muted">Time Entries (last 5 of ${wo.time_entries.length}):</div>
+        ${recentEntries.map(e => {
+          const dur = e.end_time ? Math.round((new Date(e.end_time) - new Date(e.start_time))/60000) + ' min' : 'Active';
+          const t = new Date(e.start_time).toLocaleTimeString();
+          const t2 = e.end_time ? new Date(e.end_time).toLocaleTimeString() : 'Active';
+          return `<div class="small">${esc(e.operator_name)}: ${t} → ${t2} (${dur})${e.pause_reason ? ' ['+esc(e.pause_reason)+']' : ''}</div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function renderSupOps() {
+  const summaries = state.summaries.operator_summaries || {};
+  const ops = state.operators;
+  const container = document.getElementById('supOpList');
+  if (ops.length === 0) { container.innerHTML = '<p class="text-muted">No operators yet.</p>'; return; }
+  container.innerHTML = ops.map(op => {
+    const s = summaries[op.id] || { active_mins: 0, paused_by_reason: {}, status: 'Idle' };
+    const statusClass = s.status.startsWith('Working') ? 'op-working' : s.status.startsWith('Paused') ? 'op-paused' : 'op-idle';
+    return `
+      <div class="card mb-2">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="fw-semibold">${esc(op.name)}</div>
+              ${op.line ? `<div class="small text-secondary">Line: ${esc(op.line)}</div>` : ''}
+            </div>
+            <span class="op-badge ${statusClass}">${esc(s.status)}</span>
+          </div>
+          <div class="small text-primary mt-1">Total Active Time: ${s.active_mins} mins</div>
+          ${Object.keys(s.paused_by_reason).length > 0 ? `
+            <hr class="my-1">
+            <div class="small fw-semibold">Pause Breakdown:</div>
+            ${Object.entries(s.paused_by_reason).map(([r,m]) => `<div class="small">${esc(r)}: ${m} mins</div>`).join('')}
+          ` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderSupLines() {
+  const ops = state.operators;
+  const summaries = state.summaries.operator_summaries || {};
+  const allLines = [...new Set(ops.map(o => o.line || 'Unassigned'))].sort();
+
+  const chips = document.getElementById('supLineChips');
+  chips.innerHTML = chipHtml(null, 'All', supLineFilter, v => { supLineFilter = v; renderSupLines(); });
+  allLines.forEach(l => chips.innerHTML += chipHtml(l, l, supLineFilter, v => { supLineFilter = v; renderSupLines(); }));
+
+  const filtered = supLineFilter ? ops.filter(o => (o.line || 'Unassigned') === supLineFilter) : ops;
+  const grouped = groupBy(filtered, o => o.line || 'Unassigned');
+  const container = document.getElementById('supLineList');
+  container.innerHTML = Object.entries(grouped).map(([line, lineOps]) => {
+    const totalActive = lineOps.reduce((sum, op) => sum + (summaries[op.id]?.active_mins || 0), 0);
+    const managers = lineOps.filter(o => (o.role || 'operator') === 'manager');
+    const regularOps = lineOps.filter(o => (o.role || 'operator') !== 'manager');
+
+    const pauseBreakdownHtml = (s) => {
+      const reasons = Object.entries(s.paused_by_reason || {});
+      if (reasons.length === 0) return '';
+      return `<div class="small text-muted mt-1">${
+        reasons.map(([r, m]) => `${esc(r)}: <span class="fw-semibold">${m} mins</span>`).join(' &nbsp;·&nbsp; ')
+      }</div>`;
+    };
+
+    const managerRows = managers.map(op => {
+      const s = summaries[op.id] || { active_mins: 0, paused_by_reason: {}, status: 'Idle' };
+      const statusClass = s.status.startsWith('Working') ? 'op-working' : s.status.startsWith('Paused') ? 'op-paused' : 'op-idle';
+      return `
+        <div class="border-top px-3 py-2" style="background:#fff8e1;">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <span class="fw-bold">${esc(op.name)}</span>
+              <span class="badge bg-warning text-dark ms-2" style="font-size:0.7rem;">LINE MANAGER</span>
+              <span class="small text-muted ms-2">${s.active_mins} mins active</span>
+            </div>
+            <span class="op-badge ${statusClass}">${esc(s.status)}</span>
+          </div>
+          ${pauseBreakdownHtml(s)}
+        </div>`;
+    }).join('');
+
+    const opRows = regularOps.map(op => {
+      const s = summaries[op.id] || { active_mins: 0, paused_by_reason: {}, status: 'Idle' };
+      const statusClass = s.status.startsWith('Working') ? 'op-working' : s.status.startsWith('Paused') ? 'op-paused' : 'op-idle';
+      return `
+        <div class="border-top px-3 py-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <span class="fw-semibold">${esc(op.name)}</span>
+              <span class="small text-muted ms-2">${s.active_mins} mins active</span>
+            </div>
+            <span class="op-badge ${statusClass}">${esc(s.status)}</span>
+          </div>
+          ${pauseBreakdownHtml(s)}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="card mb-3" style="border-left:4px solid #1976d2;">
+        <div class="card-header py-2 fw-semibold" style="background:#e3f2fd;">
+          Line: ${esc(line)} — Total Active: ${Math.round(totalActive)} mins
+        </div>
+        ${managerRows}
+        ${regularOps.length > 0 ? `
+          <div class="px-3 pt-2 pb-1" style="background:#fafafa;">
+            <span class="small text-uppercase text-muted fw-semibold" style="letter-spacing:.05em;">Operators</span>
+          </div>
+          ${opRows}` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ─── Style Minutes & Efficiency ───────────────────────────────────────────────
+function renderStyleMins() {
+  const data = state.summaries.style_mins_per_unit || {};
+  const styles = Object.keys(data);
+  const container = document.getElementById('styleMinsChart');
+  const empty = document.getElementById('styleMinsEmpty');
+  if (styles.length === 0) { container.style.display = 'none'; empty.style.display = ''; return; }
+  container.style.display = '';
+  empty.style.display = 'none';
+  const maxVal = Math.max(...Object.values(data));
+  container.innerHTML = styles.map(s => barRow(s, data[s], maxVal, data[s].toFixed(2))).join('');
+}
+
+function renderEfficiency() {
+  const data = state.summaries.efficiency_pct || {};
+  const styles = Object.keys(data);
+  const container = document.getElementById('efficiencyChart');
+  const empty = document.getElementById('efficiencyEmpty');
+  if (styles.length === 0) { container.style.display = 'none'; empty.style.display = ''; return; }
+  container.style.display = '';
+  empty.style.display = 'none';
+  const maxVal = Math.max(100, ...Object.values(data));
+  container.innerHTML = styles.map(s => {
+    const pct = data[s];
+    const color = pct < 90 ? '#d32f2f' : pct > 100 ? '#388e3c' : '#1976d2';
+    return barRow(s, pct, maxVal, pct.toFixed(1) + '%', color);
+  }).join('');
+}
+
+// ─── Work Order Modal ─────────────────────────────────────────────────────────
+let addWOModalInst = null;
+function showAddWOModal() {
+  if (!addWOModalInst) addWOModalInst = new bootstrap.Modal(document.getElementById('addWOModal'));
+  addWOModalInst.show();
+}
+
+async function addWorkOrder() {
+  const name = document.getElementById('woName').value.trim();
+  if (!name) return;
+  await api('POST', '/api/work-orders', {
+    name,
+    style: document.getElementById('woStyle').value.trim(),
+    size: document.getElementById('woSize').value.trim(),
+    colorway: document.getElementById('woColorway').value.trim(),
+    line: document.getElementById('woLine').value.trim(),
+    target_quantity: parseInt(document.getElementById('woQty').value) || 0,
+    target_minutes_per_unit: parseFloat(document.getElementById('woMins').value) || 0,
+  });
+  ['woName','woStyle','woSize','woColorway','woLine','woQty','woMins'].forEach(id => document.getElementById(id).value = '');
+  addWOModalInst?.hide();
+  await refreshState();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function getBusyWO(opId) {
+  return state.work_orders.find(wo =>
+    wo.time_entries.some(e => e.operator_id === opId && !e.end_time)
+  ) || null;
+}
+
+function groupBy(arr, keyFn) {
+  return arr.reduce((acc, item) => {
+    const k = keyFn(item);
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(item);
+    return acc;
+  }, {});
+}
+
+function chipHtml(val, label, selected, onClickFn) {
+  // Store click handler references globally
+  const fnId = 'chipFn_' + Math.random().toString(36).slice(2);
+  window[fnId] = () => { onClickFn(val); };
+  const active = val === selected ? 'active' : '';
+  return `<span class="filter-chip ${active}" onclick="${fnId}()">${esc(label)}</span>`;
+}
+
+function barRow(label, value, maxVal, displayVal, color = '#1976d2') {
+  const pct = maxVal > 0 ? Math.max(5, (value / maxVal) * 100) : 5;
+  return `
+    <div class="d-flex align-items-center mb-2">
+      <div class="bar-label text-muted" title="${esc(label)}">${esc(label)}</div>
+      <div class="bar-track ms-2">
+        <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
+      </div>
+      <div class="bar-val ms-2 small text-muted">${esc(displayVal)}</div>
+    </div>`;
+}
+
+// ─── Operator CSV Template & Upload ──────────────────────────────────────────
+function downloadOperatorsTemplate() {
+  const a = document.createElement('a');
+  a.href = '/api/operators/template';
+  a.download = 'operators_template.csv';
+  a.click();
+}
+
+let opCSVModalInst = null;
+function showOpCSVUploadModal() {
+  document.getElementById('opCSVFileInput').value = '';
+  document.getElementById('opCSVUploadResult').style.display = 'none';
+  if (!opCSVModalInst) opCSVModalInst = new bootstrap.Modal(document.getElementById('opCSVUploadModal'));
+  opCSVModalInst.show();
+}
+
+async function uploadOperatorsCSV() {
+  const fileInput = document.getElementById('opCSVFileInput');
+  const resultEl = document.getElementById('opCSVUploadResult');
+
+  if (!fileInput.files.length) {
+    resultEl.innerHTML = '<div class="alert alert-warning py-2 small">Please select a CSV file first.</div>';
+    resultEl.style.display = '';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  try {
+    const resp = await fetch('/api/operators/upload-csv', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      resultEl.innerHTML = `<div class="alert alert-danger py-2 small">Error: ${esc(data.error || 'Upload failed')}</div>`;
+      resultEl.style.display = '';
+      return;
+    }
+
+    let html = `<div class="alert alert-success py-2 small"><strong>${data.added} operator(s) imported successfully.</strong></div>`;
+    if (data.skipped > 0) {
+      html += `<div class="alert alert-warning py-2 small"><strong>${data.skipped} row(s) skipped:</strong><ul class="mb-0 mt-1">`;
+      data.skipped_details.forEach(s => { html += `<li>Row ${s.row}: ${esc(s.reason)}</li>`; });
+      html += '</ul></div>';
+    }
+    resultEl.innerHTML = html;
+    resultEl.style.display = '';
+
+    await refreshState();
+
+    if (data.skipped === 0) {
+      setTimeout(() => opCSVModalInst?.hide(), 2500);
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: ${esc(e.message)}</div>`;
+    resultEl.style.display = '';
+  }
+}
+
+// ─── CSV Template & Upload ────────────────────────────────────────────────────
+function downloadCSVTemplate() {
+  const a = document.createElement('a');
+  a.href = '/api/work-orders/template';
+  a.download = 'work_orders_template.csv';
+  a.click();
+}
+
+function exportWOCSV() {
+  const a = document.createElement('a');
+  a.href = '/api/work-orders/export-csv';
+  a.download = 'work_orders_export.csv';
+  a.click();
+}
+
+let csvUploadModalInst = null;
+function showCSVUploadModal() {
+  document.getElementById('csvFileInput').value = '';
+  document.getElementById('csvUploadResult').style.display = 'none';
+  if (!csvUploadModalInst) csvUploadModalInst = new bootstrap.Modal(document.getElementById('csvUploadModal'));
+  csvUploadModalInst.show();
+}
+
+async function uploadCSV() {
+  const fileInput = document.getElementById('csvFileInput');
+  const resultEl = document.getElementById('csvUploadResult');
+
+  if (!fileInput.files.length) {
+    resultEl.innerHTML = '<div class="alert alert-warning py-2 small">Please select a CSV file first.</div>';
+    resultEl.style.display = '';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  try {
+    const resp = await fetch('/api/work-orders/upload-csv', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      resultEl.innerHTML = `<div class="alert alert-danger py-2 small">Error: ${esc(data.error || 'Upload failed')}</div>`;
+      resultEl.style.display = '';
+      return;
+    }
+
+    let html = `<div class="alert alert-success py-2 small"><strong>${data.added} work order(s) imported successfully.</strong></div>`;
+    if (data.skipped > 0) {
+      html += `<div class="alert alert-warning py-2 small"><strong>${data.skipped} row(s) skipped:</strong><ul class="mb-0 mt-1">`;
+      data.skipped_details.forEach(s => { html += `<li>Row ${s.row}: ${esc(s.reason)}</li>`; });
+      html += '</ul></div>';
+    }
+    resultEl.innerHTML = html;
+    resultEl.style.display = '';
+
+    await refreshState();
+
+    // Auto-close after 2.5 seconds if no skipped rows
+    if (data.skipped === 0) {
+      setTimeout(() => csvUploadModalInst?.hide(), 2500);
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<div class="alert alert-danger py-2 small">Upload failed: ${esc(e.message)}</div>`;
+    resultEl.style.display = '';
+  }
+}
+
+// Initial load
+refreshState();
+</script>
+</body>
+</html>
